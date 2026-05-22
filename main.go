@@ -319,102 +319,16 @@ func getOrdersWithTests(w http.ResponseWriter, r *http.Request) {
 		}}},
 
 		{{Key: "$project", Value: bson.M{
+			"_id":       0,
 			"order":     "$lab22c1",
 			"service":   "$lab10.lab10c2",
 			"type":      "$lab103.lab103c2",
 			"customer":  "$lab14.lab14c3",
 			"createdAt": "$createdAt",
 
-			"status": bson.M{
-				"$cond": bson.A{
-					bson.M{
-						"$and": bson.A{
-							bson.M{
-								"$gt": bson.A{
-									bson.M{"$size": "$tests"},
-									0,
-								},
-							},
-							bson.M{
-								"$eq": bson.A{
-									bson.M{
-										"$size": bson.M{
-											"$filter": bson.M{
-												"input": "$tests",
-												"as":    "test",
-												"cond": bson.M{
-													"$not": bson.M{
-														"$in": bson.A{
-															"$$test.lab57c8",
-															bson.A{4, 6, "4", "6"},
-														},
-													},
-												},
-											},
-										},
-									},
-									0,
-								},
-							},
-						},
-					},
-					6,
-					0,
-				},
-			},
-
-			"tests": bson.M{
-				"$map": bson.M{
-					"input": "$tests",
-					"as":    "test",
-					"in": bson.M{
-						"area": bson.M{
-							"$substrCP": bson.A{
-								bson.M{
-									"$replaceAll": bson.M{
-										"input": bson.M{
-											"$replaceAll": bson.M{
-												"input": bson.M{
-													"$replaceAll": bson.M{
-														"input": bson.M{
-															"$replaceAll": bson.M{
-																"input": bson.M{
-																	"$replaceAll": bson.M{
-																		"input": bson.M{
-																			"$toUpper": "$$test.lab39.lab43.lab43c4",
-																		},
-																		"find":        "Á",
-																		"replacement": "A",
-																	},
-																},
-																"find":        "É",
-																"replacement": "E",
-															},
-														},
-														"find":        "Í",
-														"replacement": "I",
-													},
-												},
-												"find":        "Ó",
-												"replacement": "O",
-											},
-										},
-										"find":        "Ú",
-										"replacement": "U",
-									},
-								},
-								0,
-								3,
-							},
-						},
-						"testName":      "$$test.lab39.lab39c4",
-						"testID":        "$$test.lab39.lab39c2",
-						"created":       "$$test.createdAt",
-						"validatedDate": "$$test.lab57c18",
-						"testStatus":    "$$test.lab57c8",
-					},
-				},
-			},
+			"status": getOrderStatusExpression(),
+			"opTime": getRandomOpTimeExpression(),
+			"tests":  getTestsExpression(),
 		}}},
 	}
 
