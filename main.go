@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type NT01 struct {
@@ -20,6 +24,46 @@ type NT01 struct {
 }
 
 var client *mongo.Client
+
+var jwtSecret = []byte("CAMBIA_ESTA_CLAVE_SECRETA_SUPER_SEGURA")
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Authenticated bool          `json:"authenticated"`
+	Token         string        `json:"token,omitempty"`
+	ExpiresIn     int64         `json:"expiresIn,omitempty"`
+	User          LoginUserData `json:"user,omitempty"`
+	Message       string        `json:"message,omitempty"`
+}
+
+type LoginUserData struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+}
+
+type AppUser struct {
+	ID           primitive.ObjectID `bson:"_id,omitempty"`
+	Username     string             `bson:"username"`
+	Name         string             `bson:"name"`
+	PasswordHash string             `bson:"passwordHash"`
+	Role         string             `bson:"role"`
+	Active       bool               `bson:"active"`
+	Created      time.Time          `bson:"created"`
+	LastLogin    *time.Time         `bson:"lastLogin"`
+}
+
+type AppClaims struct {
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	jwt.RegisteredClaims
+}
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -42,11 +86,193 @@ func main() {
 
 	//router.HandleFunc("/pacientes", getPacientes).Methods("GET")
 	//router.HandleFunc("/orders", getOrders).Methods("GET")
-	router.HandleFunc("/orders", getOrdersWithTests).Methods("GET")
-	router.HandleFunc("/paciente/{id}", getPaciente).Methods("GET")
+	router.HandleFunc("/login", login).Methods("POST")
+	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
+	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
 
 	log.Println("Servidor corriendo en http://0.0.0.0:8000")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8000", router))
+}
+
+func login(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var loginData LoginRequest
+
+	err := json.NewDecoder(r.Body).Decode(&loginData)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(LoginResponse{
+			Authenticated: false,
+			Message:       "Datos inválidos",
+		})
+		return
+	}
+
+	if loginData.Username == "" || loginData.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(LoginResponse{
+			Authenticated: false,
+			Message:       "Usuario y contraseña son requeridos",
+		})
+		return
+	}
+
+	collection := client.Database("EnterpriseNT").Collection("app_users")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var user AppUser
+
+	err = collection.FindOne(ctx, bson.M{
+		"username": loginData.Username,
+		"active":   true,
+	}).Decode(&user)
+
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(LoginResponse{
+			Authenticated: false,
+			Message:       "Usuario o contraseña incorrectos",
+		})
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(loginData.Password))
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(LoginResponse{
+			Authenticated: false,
+			Message:       "Usuario o contraseña incorrectos",
+		})
+		return
+	}
+
+	expirationTime := time.Now().Add(8 * time.Hour)
+
+	claims := AppClaims{
+		UserID:   user.ID.Hex(),
+		Username: user.Username,
+		Role:     user.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "EnterpriseNT-API",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(LoginResponse{
+			Authenticated: false,
+			Message:       "Error generando token",
+		})
+		return
+	}
+
+	now := time.Now()
+
+	_, _ = collection.UpdateOne(
+		ctx,
+		bson.M{"_id": user.ID},
+		bson.M{
+			"$set": bson.M{
+				"lastLogin": now,
+			},
+		},
+	)
+
+	json.NewEncoder(w).Encode(LoginResponse{
+		Authenticated: true,
+		Token:         tokenString,
+		ExpiresIn:     int64(8 * 60 * 60),
+		User: LoginUserData{
+			ID:       user.ID.Hex(),
+			Username: user.Username,
+			Name:     user.Name,
+			Role:     user.Role,
+		},
+	})
+}
+
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		authHeader := r.Header.Get("Authorization")
+
+		if authHeader == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(bson.M{
+				"authenticated": false,
+				"message":       "Token requerido",
+			})
+			return
+		}
+
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(bson.M{
+				"authenticated": false,
+				"message":       "Formato de token inválido",
+			})
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		claims := &AppClaims{}
+
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+
+		if err != nil || !token.Valid {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(bson.M{
+				"authenticated": false,
+				"message":       "Token inválido o expirado",
+			})
+			return
+		}
+
+		userObjectID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(bson.M{
+				"authenticated": false,
+				"message":       "Usuario inválido",
+			})
+			return
+		}
+
+		collection := client.Database("EnterpriseNT").Collection("app_users")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var user AppUser
+
+		err = collection.FindOne(ctx, bson.M{
+			"_id":    userObjectID,
+			"active": true,
+		}).Decode(&user)
+
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(bson.M{
+				"authenticated": false,
+				"message":       "Usuario inactivo o no autorizado",
+			})
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 func getPaciente(w http.ResponseWriter, r *http.Request) {
