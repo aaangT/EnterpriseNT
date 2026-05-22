@@ -1,0 +1,15 @@
+{
+	"filePath": "mappings/lab21.json",
+	"database": "EnterpriseNT",
+	"collection": "lab21",
+	"entity": "patients",
+	"fields": {
+		"_id": "recordID",
+		"lab21c2": "patientID",
+		"lab21c3": "patientName",
+		"lab21c5": "fatherLastName",
+		"lab21c6": "motherLastName",
+		"lab21c7": "patientBirthDay",
+		"lab21c8": "patientEmail"
+	}
+}

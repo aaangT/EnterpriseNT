@@ -1,0 +1,31 @@
+{
+	"filePath": "mappings/endP_orders.json",
+	"database": "EnterpriseNT",
+	"collection": "lab57_2026",
+	"entity": "orders",
+	"description": "JSON plano de estudios con datos combinados desde lab57_2026 y lab22_2026",
+	"lookups": [
+		{
+			"from": "lab22_2026",
+			"localField": "lab22c1",
+			"foreignField": "lab22c1",
+			"as": "lab22_docs"
+		}
+	],
+	"fields": {
+		"_id": "recordID",
+		"lab22c1": "order",
+		"lab39.lab43.lab43c4": "area",
+		"lab39.lab39c4": "testName",
+		"lab39.lab39c2": "testID",
+		"createdAt": "created",
+		"lab57c18": "validatedDate",
+		"lab22_docs.lab10.lab10c2": "service",
+		"lab22_docs.lab103.lab103c3": "type",
+		"lab22_docs.lab14.lab14c3": "customer"
+	},
+	"computedFields": {
+		"opTime": "validatedDate - created in hours",
+		"status": "validatedDate"
+	}
+}

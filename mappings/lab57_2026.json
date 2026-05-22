@@ -1,0 +1,30 @@
+{
+	"filePath": "mappings/lab57_2026.json",
+	"database": "EnterpriseNT",
+	"collection": "lab57_2026",
+	"entity": "tests",
+	"fields": {
+		"_id": "recordID",
+		"lab22c1": "order",
+		"lab39.lab39c1": "testOrder",
+		"lab39.lab43.lab43c4": "area",
+		"lab39.lab39c4": "testName",
+		"lab39.lab39c2": "testID",
+		"createdAt": "created",
+		"lab57c18": "validatedDate",
+		"lab57c8": "status",
+        "lab57c1": "result",
+        "lab48c12": "reference_min",
+        "lab48c13": "reference_max",
+        "lab48c2": "unit"
+	},
+	"valueMaps": {
+		"lab57c8": {
+			"0": "ordenada",
+			"1": "repetición",
+			"2": "con resultado",
+			"4": "validada",
+			"6": "validada"
+		}
+	}
+}

@@ -1,0 +1,15 @@
+{
+	"filePath": "mappings/lab22_2026.json",
+	"database": "EnterpriseNT",
+	"collection": "lab22_2026",
+	"entity": "orders",
+	"fields": {
+		"_id": "recordID",
+		"lab22c1": "order",
+		"lab10.lab10c2": "service",
+		"lab103.lab103c3": "type",
+        "lab103.lab103c2": "type_L",
+		"lab14.lab14c3": "customer",
+		"createdAt": "createdAt"
+	}
+}
