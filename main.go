@@ -65,6 +65,41 @@ type AppClaims struct {
 	jwt.RegisteredClaims
 }
 
+type CreateUserRequest struct {
+	Name            string `json:"name"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	PermissionLevel int    `json:"permissionLevel"`
+	Status          string `json:"status"`
+}
+
+type CreateUserResponse struct {
+	Created bool        `json:"created"`
+	Message string      `json:"message,omitempty"`
+	User    CreatedUser `json:"user,omitempty"`
+}
+
+type CreatedUser struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Email           string    `json:"email"`
+	PermissionLevel int       `json:"permissionLevel"`
+	Status          string    `json:"status"`
+	Created         time.Time `json:"created"`
+}
+
+type AppUserToInsert struct {
+	ID              primitive.ObjectID `bson:"_id,omitempty"`
+	Name            string             `bson:"name"`
+	Email           string             `bson:"email"`
+	PasswordHash    string             `bson:"passwordHash"`
+	PermissionLevel int                `bson:"permissionLevel"`
+	Status          string             `bson:"status"`
+	Active          bool               `bson:"active"`
+	Created         time.Time          `bson:"created"`
+	LastLogin       *time.Time         `bson:"lastLogin"`
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -88,11 +123,12 @@ func main() {
 	//router.HandleFunc("/orders", getOrdersWithTests).Methods("GET")
 	//router.HandleFunc("/orderst", getOrdersWithTests).Methods("GET")
 	router.HandleFunc("/login", login).Methods("POST")
+	router.HandleFunc("/users", authMiddleware(createUser)).Methods("POST")
 	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
 	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
 
-	log.Println("Servidor corriendo en http://0.0.0.0:8000")
-	log.Fatal(http.ListenAndServe("0.0.0.0:8000", enableCORS(router)))
+	log.Println("Servidor corriendo en http://0.0.0.0:8001")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8001", enableCORS(router)))
 }
 
 func enableCORS(next http.Handler) http.Handler {
@@ -211,6 +247,133 @@ func login(w http.ResponseWriter, r *http.Request) {
 			Username: user.Username,
 			Name:     user.Name,
 			Role:     user.Role,
+		},
+	})
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var requestData CreateUserRequest
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "Datos inválidos",
+		})
+		return
+	}
+
+	if requestData.Name == "" || requestData.Email == "" || requestData.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "name, email y password son requeridos",
+		})
+		return
+	}
+
+	if requestData.PermissionLevel < 1 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "permissionLevel debe ser mayor o igual a 1",
+		})
+		return
+	}
+
+	if requestData.Status == "" {
+		requestData.Status = "active"
+	}
+
+	if requestData.Status != "active" && requestData.Status != "inactive" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "status debe ser active o inactive",
+		})
+		return
+	}
+
+	collection := client.Database("EnterpriseNT").Collection("app_users")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var existingUser bson.M
+
+	err = collection.FindOne(ctx, bson.M{
+		"email": requestData.Email,
+	}).Decode(&existingUser)
+
+	if err == nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "Ya existe un usuario con ese email",
+		})
+		return
+	}
+
+	if err != mongo.ErrNoDocuments {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "Error validando usuario existente",
+		})
+		return
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(requestData.Password), bcrypt.DefaultCost)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "Error generando password hash",
+		})
+		return
+	}
+
+	now := time.Now()
+	userID := primitive.NewObjectID()
+
+	userToInsert := AppUserToInsert{
+		ID:              userID,
+		Name:            requestData.Name,
+		Email:           requestData.Email,
+		PasswordHash:    string(passwordHash),
+		PermissionLevel: requestData.PermissionLevel,
+		Status:          requestData.Status,
+		Active:          requestData.Status == "active",
+		Created:         now,
+		LastLogin:       nil,
+	}
+
+	_, err = collection.InsertOne(ctx, userToInsert)
+	if err != nil {
+		log.Println("Error creando usuario:", err)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CreateUserResponse{
+			Created: false,
+			Message: "Error creando usuario: " + err.Error(),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(CreateUserResponse{
+		Created: true,
+		Message: "Usuario creado correctamente",
+		User: CreatedUser{
+			ID:              userID.Hex(),
+			Name:            userToInsert.Name,
+			Email:           userToInsert.Email,
+			PermissionLevel: userToInsert.PermissionLevel,
+			Status:          userToInsert.Status,
+			Created:         userToInsert.Created,
 		},
 	})
 }
