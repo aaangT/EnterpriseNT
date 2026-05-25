@@ -28,7 +28,7 @@ var client *mongo.Client
 var jwtSecret = []byte("CAMBIA_ESTA_CLAVE_SECRETA_SUPER_SEGURA")
 
 type LoginRequest struct {
-	Username string `json:"username"`
+	Username string `json:"email"`
 	Password string `json:"password"`
 }
 
@@ -42,14 +42,14 @@ type LoginResponse struct {
 
 type LoginUserData struct {
 	ID       string `json:"id"`
-	Username string `json:"username"`
+	Username string `json:"email"`
 	Name     string `json:"name"`
 	Role     string `json:"role"`
 }
 
 type AppUser struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty"`
-	Username     string             `bson:"username"`
+	Username     string             `bson:"email"`
 	Name         string             `bson:"name"`
 	PasswordHash string             `bson:"passwordHash"`
 	Role         string             `bson:"role"`
@@ -60,7 +60,7 @@ type AppUser struct {
 
 type AppClaims struct {
 	UserID   string `json:"userId"`
-	Username string `json:"username"`
+	Username string `json:"email"`
 	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
@@ -85,7 +85,8 @@ func main() {
 	router := mux.NewRouter()
 
 	//router.HandleFunc("/pacientes", getPacientes).Methods("GET")
-	//router.HandleFunc("/orders", getOrders).Methods("GET")
+	//router.HandleFunc("/orders", getOrdersWithTests).Methods("GET")
+	//router.HandleFunc("/orderst", getOrdersWithTests).Methods("GET")
 	router.HandleFunc("/login", login).Methods("POST")
 	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
 	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
@@ -141,8 +142,8 @@ func login(w http.ResponseWriter, r *http.Request) {
 	var user AppUser
 
 	err = collection.FindOne(ctx, bson.M{
-		"username": loginData.Username,
-		"active":   true,
+		"email":  loginData.Username,
+		"active": true,
 	}).Decode(&user)
 
 	if err != nil {
