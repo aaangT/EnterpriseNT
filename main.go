@@ -127,8 +127,8 @@ func main() {
 	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
 	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
 
-	log.Println("Servidor corriendo en http://0.0.0.0:8001")
-	log.Fatal(http.ListenAndServe("0.0.0.0:8001", enableCORS(router)))
+	log.Println("Servidor corriendo en http://0.0.0.0:8000")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8000", enableCORS(router)))
 }
 
 func enableCORS(next http.Handler) http.Handler {
