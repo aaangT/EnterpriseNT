@@ -126,6 +126,7 @@ func main() {
 	router.HandleFunc("/users", authMiddleware(createUser)).Methods("POST")
 	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
 	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
+	router.HandleFunc("/all-users", authMiddleware(getUsers)).Methods("GET")
 
 	log.Println("Servidor corriendo en http://0.0.0.0:8000")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8000", enableCORS(router)))
@@ -526,4 +527,44 @@ func getOrdersWithTests(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(results)
+}
+
+func getUsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	collection := client.Database("EnterpriseNT").Collection("app_users")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	projection := bson.M{
+		"_id":             1,
+		"name":            1,
+		"role":            1,
+		"active":          1,
+		"created":         1,
+		"lastLogin":       1,
+		"email":           1,
+		"permissionLevel": 1,
+	}
+
+	cursor, err := collection.Find(ctx, bson.M{}, options.Find().SetProjection(projection))
+	if err != nil {
+		http.Error(w, "Error consultando usuarios: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var users []bson.M
+
+	if err := cursor.All(ctx, &users); err != nil {
+		http.Error(w, "Error leyendo usuarios: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if users == nil {
+		users = []bson.M{}
+	}
+
+	json.NewEncoder(w).Encode(users)
 }
