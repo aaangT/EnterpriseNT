@@ -127,6 +127,7 @@ func main() {
 	router.HandleFunc("/orders", authMiddleware(getOrdersWithTests)).Methods("GET")
 	router.HandleFunc("/paciente/{id}", authMiddleware(getPaciente)).Methods("GET")
 	router.HandleFunc("/all-users", authMiddleware(getUsers)).Methods("GET")
+	router.HandleFunc("/orders-sum", getOrdersSum).Methods("GET")
 
 	log.Println("Servidor corriendo en http://0.0.0.0:8000")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8000", enableCORS(router)))
@@ -567,4 +568,125 @@ func getUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(users)
+}
+
+func getOrdersSum(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	collection := client.Database("EnterpriseNT").Collection("lab22_2026")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$lookup", Value: bson.M{
+			"from":         "lab57_2026",
+			"localField":   "lab22c1",
+			"foreignField": "lab22c1",
+			"as":           "tests",
+		}}},
+
+		{{Key: "$addFields", Value: bson.M{
+			"testsMapped": bson.M{
+				"$map": bson.M{
+					"input": "$tests",
+					"as":    "test",
+					"in": bson.M{
+						"area":       getAreaExpression(),
+						"testStatus": "$$test.lab57c8",
+					},
+				},
+			},
+		}}},
+
+		{{Key: "$addFields", Value: bson.M{
+			"areas": bson.M{
+				"$setUnion": bson.A{
+					bson.M{
+						"$map": bson.M{
+							"input": "$testsMapped",
+							"as":    "test",
+							"in":    "$$test.area",
+						},
+					},
+					bson.A{},
+				},
+			},
+		}}},
+
+		{{Key: "$addFields", Value: bson.M{
+			"areaStatuses": bson.M{
+				"$arrayToObject": bson.M{
+					"$map": bson.M{
+						"input": "$areas",
+						"as":    "area",
+						"in": bson.M{
+							"k": bson.M{
+								"$concat": bson.A{
+									"status_",
+									"$$area",
+								},
+							},
+							"v": getOrderSumStatusExpression(
+								bson.M{
+									"$filter": bson.M{
+										"input": "$testsMapped",
+										"as":    "test",
+										"cond": bson.M{
+											"$eq": bson.A{
+												"$$test.area",
+												"$$area",
+											},
+										},
+									},
+								},
+							),
+						},
+					},
+				},
+			},
+		}}},
+
+		{{Key: "$project", Value: bson.M{
+			"_id":       0,
+			"order":     "$lab22c1",
+			"createdAt": "$createdAt",
+			"opTime":    getRandomOpTimeExpression(),
+			"type":      "$lab103.lab103c2",
+			"service":   "$lab10.lab10c2",
+			"status":    getOrderSumStatusExpression("$testsMapped"),
+			"areas":     "$areas",
+
+			"areaStatuses": "$areaStatuses",
+		}}},
+
+		{{Key: "$replaceRoot", Value: bson.M{
+			"newRoot": bson.M{
+				"$mergeObjects": bson.A{
+					"$$ROOT",
+					"$areaStatuses",
+				},
+			},
+		}}},
+
+		{{Key: "$project", Value: bson.M{
+			"areaStatuses": 0,
+		}}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		http.Error(w, "Error ejecutando aggregate: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var results []bson.M
+
+	if err := cursor.All(ctx, &results); err != nil {
+		http.Error(w, "Error leyendo resultados: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(results)
 }

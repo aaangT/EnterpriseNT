@@ -117,3 +117,171 @@ func getNormalizedAreaExpression() bson.M {
 		},
 	}
 }
+
+func getOrderSumStatusExpression(testsInput interface{}) bson.M {
+	return bson.M{
+		"$let": bson.M{
+			"vars": bson.M{
+				"statusList": bson.M{
+					"$map": bson.M{
+						"input": testsInput,
+						"as":    "test",
+						"in": bson.M{
+							"$toString": "$$test.testStatus",
+						},
+					},
+				},
+			},
+			"in": bson.M{
+				"$switch": bson.M{
+					"branches": bson.A{
+						bson.M{
+							"case": bson.M{
+								"$eq": bson.A{
+									bson.M{
+										"$size": "$$statusList",
+									},
+									0,
+								},
+							},
+							"then": 10,
+						},
+						bson.M{
+							"case": getAllStatusCondition("0"),
+							"then": 10,
+						},
+						bson.M{
+							"case": getAllStatusCondition("1"),
+							"then": 11,
+						},
+						bson.M{
+							"case": getAllStatusCondition("2"),
+							"then": 12,
+						},
+						bson.M{
+							"case": getAllStatusCondition("5"),
+							"then": 13,
+						},
+						bson.M{
+							"case": getAllStatusInCondition(bson.A{"4", "6"}),
+							"then": 14,
+						},
+						bson.M{
+							"case": getAnyStatusInCondition(bson.A{"4", "6"}),
+							"then": 15,
+						},
+						bson.M{
+							"case": getAnyStatusInCondition(bson.A{"5"}),
+							"then": 16,
+						},
+						bson.M{
+							"case": getAnyStatusInCondition(bson.A{"2"}),
+							"then": 17,
+						},
+						bson.M{
+							"case": bson.M{
+								"$and": bson.A{
+									getAnyStatusInCondition(bson.A{"0"}),
+									getAnyStatusInCondition(bson.A{"1"}),
+								},
+							},
+							"then": 18,
+						},
+					},
+					"default": 19,
+				},
+			},
+		},
+	}
+}
+
+func getStatusListHasDataCondition() bson.M {
+	return bson.M{
+		"$gt": bson.A{
+			bson.M{
+				"$size": "$$statusList",
+			},
+			0,
+		},
+	}
+}
+
+func getAllStatusCondition(status string) bson.M {
+	return bson.M{
+		"$and": bson.A{
+			getStatusListHasDataCondition(),
+			bson.M{
+				"$eq": bson.A{
+					bson.M{
+						"$size": bson.M{
+							"$filter": bson.M{
+								"input": "$$statusList",
+								"as":    "status",
+								"cond": bson.M{
+									"$ne": bson.A{
+										"$$status",
+										status,
+									},
+								},
+							},
+						},
+					},
+					0,
+				},
+			},
+		},
+	}
+}
+
+func getAllStatusInCondition(validStatuses bson.A) bson.M {
+	return bson.M{
+		"$and": bson.A{
+			getStatusListHasDataCondition(),
+			bson.M{
+				"$eq": bson.A{
+					bson.M{
+						"$size": bson.M{
+							"$filter": bson.M{
+								"input": "$$statusList",
+								"as":    "status",
+								"cond": bson.M{
+									"$not": bson.A{
+										bson.M{
+											"$in": bson.A{
+												"$$status",
+												validStatuses,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					0,
+				},
+			},
+		},
+	}
+}
+
+func getAnyStatusInCondition(validStatuses bson.A) bson.M {
+	return bson.M{
+		"$gt": bson.A{
+			bson.M{
+				"$size": bson.M{
+					"$filter": bson.M{
+						"input": "$$statusList",
+						"as":    "status",
+						"cond": bson.M{
+							"$in": bson.A{
+								"$$status",
+								validStatuses,
+							},
+						},
+					},
+				},
+			},
+			0,
+		},
+	}
+}
